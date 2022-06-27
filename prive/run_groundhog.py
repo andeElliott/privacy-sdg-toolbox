@@ -5,11 +5,11 @@ import numpy as np
 
 from prive.attacks.set_classifiers import LRClassifier, RFClassifier, \
     SetReprClassifier, NaiveRep
-from prive.threat_models.mia import TargetedAuxiliaryDataMIA
+from prive.threat_models import TargetedMIA, AppendTarget, AuxiliaryDataKnowledge, BlackBoxKnowledge
 from prive.attacks import Groundhog, ClosestDistanceAttack
 from prive.datasets import TabularDataset, TabularRecord
 
-from prive.generators import ReturnRaw
+from prive.generators import Raw
 
 
 # Set some parameters
@@ -26,7 +26,7 @@ save_dir = os.path.join('runs', curr_time)
 dataset = TabularDataset.read('prive/tests/data/test_texas')
 
 # Initialise synthetic data generator
-sdg_model = ReturnRaw() # instance of generators.Generator
+sdg_model = Raw() # instance of generators.Generator
 
 # Set target
 # TODO: Should there be a separate sample_row method on Dataset?
@@ -34,13 +34,19 @@ target = TabularRecord.from_dataset(dataset.sample(1))
 
 
 # The threat model describes the attack for this target user.
-threat_model = TargetedAuxiliaryDataMIA(target,
-                                        dataset,
-                                        sdg_model,
-                                        aux_data = None,
-                                        sample_real_frac = 0.5,
-                                        num_training_records = train_data_size,
-                                        num_synthetic_records = synthetic_data_size)
+threat_model = TargetedMIA(
+                AppendTarget(
+                    AuxiliaryDataKnowledge(
+                        dataset,
+                        sample_real_frac=0.5,
+                        num_training_records=train_data_size
+                    ),
+                    target,
+                    replace_target=True,
+                ),
+                BlackBoxKnowledge(generator=sdg_model,
+                                num_synthetic_records=synthetic_data_size),
+        )
 
 # Initialise attack.
 # NOTE: the threat_model contains dataset, and thus a dataset description.
@@ -51,8 +57,7 @@ attack = Groundhog(classifier, dataset.description)
 attack.train(threat_model, num_samples=num_train_samples)
 
 # Generate test data (implicitly through .test).
-test_labels, predictions = threat_model.test(attack, num_test_samples,
-                                             replace_target=True, save_datasets=True)
+test_labels, predictions = threat_model.test(attack, num_test_samples)
 
 # We can also define a second attack, which will reuse memoized datasets.
 #attack_cd = ClosestDistanceAttack(threat_model)
